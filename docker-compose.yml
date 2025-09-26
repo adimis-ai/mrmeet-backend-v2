@@ -62,7 +62,8 @@ services:
       - DB_PASSWORD=postgres
       - DOCKER_HOST=unix://var/run/docker.sock
       - DEVICE_TYPE=${DEVICE_TYPE}
-      - WHISPER_LIVE_URL=ws://traefik:8081/ws  # Traefik entrypoint for WS
+      # Connect directly to the whisperlive service on the internal network
+      - WHISPER_LIVE_URL=${WHISPER_LIVE_URL:-http://whisperlive:9090}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     init: true
@@ -141,6 +142,9 @@ services:
       - --entrypoints.web.address=:8081
       - --providers.consulcatalog=true
       - --providers.consulcatalog.endpoint.address=consul:8500
+      # Enable file provider to allow static routing configuration for websocket proxying
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
       - --providers.consulcatalog.exposedbydefault=false
       - --accesslog=true
       - --accesslog.format=json
@@ -155,6 +159,9 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    volumes:
+      # Mount dynamic Traefik config for additional routes (e.g. websocket proxy to whisperlive)
+      - ./traefik/dynamic:/etc/traefik/dynamic:ro
 
 
   # CPU version of WhisperLive for users without GPU

@@ -110,7 +110,22 @@ client = TranscriptionClient(
 )
 ```
 
-It connects to the server running on localhost at port 9090. Using a multilingual model, language for the transcription will be automatically detected. You can also use the language option to specify the target language for the transcription, in this case, English ("en"). The translate option should be set to `True` if we want to translate from the source language to English and `False` if we want to transcribe in the source language.
+It connects to the server running on localhost at port 9090. Using a multilingual model, language for the transcription will be automatically detected. You can also use the language option to specify the target language for the transcription (e.g. Dutch "nl").
+
+### Dutch (nl) Support
+
+- Whisper multilingual models already support Dutch. To force Dutch transcription pass `lang="nl"`.
+- If you accidentally choose an English-only model variant (e.g. `small.en`) while requesting `lang="nl"`, the server will now automatically switch to the corresponding multilingual model (`small`) so that Dutch transcription works without restarting.
+- A hallucination filter list for Dutch has been added at `hallucinations/nl.txt` (basic filler and noise tokens). Add or refine entries there as needed; entries are matched case-insensitively against whole output snippets.
+
+Example forcing Dutch with auto-switch from `small.en` to `small`:
+
+```python
+client = TranscriptionClient("localhost", 9090, lang="nl", model="small.en")
+client("tests/jfk.wav")
+```
+
+The server log will show a warning noting the automatic model switch.
 
 - Transcribe an audio file:
 

@@ -1,0 +1,239 @@
+#!/usr/bin/env text
+# Dutch hallucination / filler / boilerplate phrases (exact, deduplicated)
+# Updated: 2025-09-26
+# One phrase per line. Lines are matched case-insensitively against ENTIRE segment output.
+# ONLY add phrases that are almost always hallucinations or useless filler when no real speech occurs.
+
+# Core low-information vocal fillers / noise markers
+eh
+uh
+uhm
+mmm
+euh
+uuh
+stilte
+ruis
+(onverstaanbaar)
+onverstaanbaar
+onduidelijk
+geen spraak
+geen audio
+
+# Short generic acknowledgements often hallucinated
+oké
+oke
+okee
+oké.
+oke.
+ja.
+nee.
+ja
+nee
+precies
+ja ja ja
+ja ja ja ja
+nee nee nee
+nee nee nee nee
+is goed
+is goed.
+helemaal goed
+helemaal goed.
+klopt
+ja klopt
+geen probleem
+geen probleem hoor
+maakt niet uit
+maakt niet uit.
+laat maar
+laat maar.
+
+# Greetings / sign‑off boilerplate
+hoi
+hoi.
+hallo
+hallo.
+dag
+dag.
+dag allemaal
+dag allemaal.
+tot ziens
+tot ziens.
+tot de volgende keer
+tot de volgende keer.
+tot de volgende.
+tot de volgende.
+tot de volgende keer, dag.
+fijne dag
+fijne dag.
+fijne avond
+fijne avond.
+goede nacht
+goede nacht.
+goedemorgen
+goedemorgen.
+goedemiddag
+goedemiddag.
+goedenavond
+goedenavond.
+welkom
+welkom.
+welkom terug
+welkom terug.
+welkom bij het kanaal
+welkom bij het kanaal.
+welkom op mijn kanaal
+welkom op mijn kanaal.
+
+# Thanks / sign-off patterns
+bedankt
+bedankt.
+bedankt!
+dank je
+dank je.
+dank je!
+dank je wel
+dank je wel.
+dankjewel
+dankjewel.
+dank jullie wel
+dank jullie wel.
+dank u wel
+dank u wel.
+heel erg bedankt
+heel erg bedankt.
+super bedankt
+super bedankt.
+hartelijk dank
+hartelijk dank.
+heel erg bedankt voor het kijken
+bedankt voor het kijken
+bedankt voor het kijken.
+bedankt voor het kijken en tot de volgende keer
+bedankt dat je hebt gekeken
+bedankt dat jullie hebben gekeken
+bedankt voor jullie tijd
+bedankt voor je tijd
+bedankt voor vandaag
+bedankt voor vandaag.
+bedankt dat je er was
+bedankt dat jullie er waren
+heel erg bedankt voor het kijken.
+
+# YouTube style CTA hallucinations
+abonneer je
+abonneer je.
+abonneer je op het kanaal
+abonneer je op het kanaal.
+abonneer je op mijn kanaal
+abonneer je op mijn kanaal.
+abonneer je en laat een like achter
+abonneer je en laat een like achter.
+vergeet niet te abonneren
+vergeet niet te abonneren.
+druk op like
+druk op like.
+
+# Closure / ending boilerplate
+dit was het
+dit was het.
+dit was het voor vandaag
+dit was het voor vandaag.
+dat was het
+dat was het.
+dat was het voor vandaag
+dat was het voor vandaag.
+dat was het dan
+dat was het dan.
+we gaan afsluiten
+we gaan afsluiten.
+ik ga afsluiten
+ik ga afsluiten.
+ik ga stoppen
+ik ga stoppen.
+we gaan stoppen
+we gaan stoppen.
+ik sluit af
+ik sluit af.
+ik ga het uitzetten
+ik ga het uitzetten.
+ik zet het uit
+ik zet het uit.
+ik ga nu stoppen
+ik ga nu stoppen.
+dit is het einde
+dit is het einde.
+einde
+einde.
+
+# Uncertain / filler meta statements
+ik weet het niet
+ik weet het niet.
+ik weet het niet hoor
+ik weet het niet hoor.
+ik weet niet wat dit is
+ik weet niet wat dit is.
+ik weet niet wat er gebeurt
+ik weet niet wat er gebeurt.
+ik weet niet waar ik het over heb
+ik weet niet waar ik het over heb.
+ik heb geen idee
+ik heb geen idee.
+geen idee
+geen idee.
+sorry
+sorry.
+sorry hoor
+sorry hoor.
+nou ja
+nou ja.
+eh ja
+eh ja.
+eh nee
+eh nee.
+uh ja
+uh ja.
+uh nee
+uh nee.
+uhm ja
+uhm ja.
+uhm nee
+uhm nee.
+even kijken
+even kijken.
+even wachten
+even wachten.
+even geduld
+even geduld.
+
+# Compound repeated agreement / disagreement hallucinations
+ja ja ja ja ja
+nee nee nee nee nee
+ja ja ja ja ja ja
+nee nee nee nee nee nee
+
+# Misc generic low-value phrases
+precies.
+helemaal prima
+helemaal prima.
+helemaal oké
+helemaal oké.
+dat klopt
+dat klopt.
+dat is goed
+dat is goed.
+dat is prima
+dat is prima.
+dat is oké
+dat is oké.
+het is goed
+het is goed.
+het is prima
+het is prima.
+eh
+uh
+uhm
+mmm
+stilte
+ruis
+(onverstaanbaar)
+onduidelijk
