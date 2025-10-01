@@ -2,6 +2,7 @@
 
 # Default target: Sets up everything and starts the services
 all: setup-env build-bot-image build up migrate-or-init test
+install: setup-env build-bot-image build up migrate-or-init
 
 # Target to set up only the environment without Docker
 # Ensure .env is created based on TARGET *before* other setup steps
