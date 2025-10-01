@@ -145,6 +145,7 @@ async def update_meeting_status(
 
 from app.tasks.bot_exit_tasks import run_all_tasks
 from app.tasks.webhook_runner import run_status_webhook_task
+from app.orchestrator_utils import verify_container_running  # For force stop checks
 
 async def publish_meeting_status_change(meeting_id: int, new_status: str, redis_client: Optional[aioredis.Redis], platform: str, native_meeting_id: str, user_id: int):
     """Publish meeting status changes via Redis Pub/Sub on platform/native_id channel only."""
@@ -808,20 +809,43 @@ async def stop_bot(
     # Pass container_id and delay
     background_tasks.add_task(_delayed_container_stop, meeting.bot_container_id, 30) 
 
-    # 5. Update Meeting status (Consider 'stopping' or keep 'active')
-    # Option A: Keep 'active' - relies on collector/other process to detect actual stop
-    # Update status to indicate stop intent
-    # Note: We don't have a 'stopping' status in the new system
-    # The bot will transition directly to 'completed' or 'failed' via callback
-    logger.info(f"Stop request accepted for meeting {meeting.id}. Bot will transition to completed/failed via callback.")
-    # Optionally clear container ID here or when stop is confirmed?
-    # meeting.bot_container_id = None 
-    # Don't set end_time here, let the stop confirmation (or lack thereof) handle it.
-    await db.commit()
-    logger.info(f"Meeting {meeting.id} status updated.")
+    # 5. Transition meeting status to STOPPING (so concurrency limit is released sooner)
+    try:
+        old_status = meeting.status
+        success = await update_meeting_status(
+            meeting,
+            MeetingStatus.STOPPING,
+            db,
+            transition_reason="user_requested_stop"
+        )
+        if success:
+            logger.info(f"Stop request: Meeting {meeting.id} status transitioned {old_status} -> stopping")
+            # Publish meeting status change via Redis Pub/Sub (already done inside update via webhook later, but publish here for WS clients)
+            await publish_meeting_status_change(meeting.id, MeetingStatus.STOPPING.value, redis_client, platform_value, native_meeting_id, meeting.user_id)
+        else:
+            logger.warning(f"Stop request: Invalid transition from {old_status} to stopping for meeting {meeting.id}. Keeping old status.")
+    except Exception as e:
+        logger.error(f"Stop request: Failed to set meeting {meeting.id} to stopping: {e}")
 
-    # 5.1. Publish meeting status change via Redis Pub/Sub
-    await publish_meeting_status_change(meeting.id, 'stopping', redis_client, platform_value, native_meeting_id, meeting.user_id)
+    # Opportunistic fast finalize if container already exited (verifier returns False)
+    try:
+        if meeting.bot_container_id:
+            is_running = await verify_container_running(meeting.bot_container_id)
+            if not is_running:
+                logger.info(f"Stop request: Container {meeting.bot_container_id} already not running for meeting {meeting.id}. Finalizing immediately.")
+                success2 = await update_meeting_status(
+                    meeting,
+                    MeetingStatus.COMPLETED,
+                    db,
+                    completion_reason=MeetingCompletionReason.STOPPED,
+                    transition_reason="container_not_running_on_stop_request"
+                )
+                if success2:
+                    await publish_meeting_status_change(meeting.id, MeetingStatus.COMPLETED.value, redis_client, platform_value, native_meeting_id, meeting.user_id)
+                    background_tasks.add_task(run_all_tasks, meeting.id)
+                    return {"message": "Stop request accepted; meeting already finalized (container not running)."}
+    except Exception as e:
+        logger.warning(f"Stop request: Could not verify container state for meeting {meeting.id}: {e}")
 
     # 6. Return 202 Accepted
     logger.info(f"Stop request for meeting {meeting.id} accepted. Leave command sent, delayed stop scheduled.")
@@ -1384,6 +1408,80 @@ async def bot_status_change_callback(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An internal error occurred while processing the bot status change callback."
         )
+
+# --- NEW: Force Stop Endpoint ---
+@app.post("/bots/{platform}/{native_meeting_id}/force-stop",
+          status_code=status.HTTP_202_ACCEPTED,
+          summary="Force stop a bot (immediate finalization)",
+          description="Immediately finalizes a meeting and attempts to stop its container, bypassing graceful leave. Useful when a meeting is stuck or bot was kicked and callbacks never arrived.",
+          dependencies=[Depends(get_user_and_token)])
+async def force_stop_bot(
+    platform: Platform,
+    native_meeting_id: str,
+    background_tasks: BackgroundTasks,
+    auth_data: tuple[str, User] = Depends(get_user_and_token),
+    db: AsyncSession = Depends(get_db)
+):
+    user_token, current_user = auth_data
+    platform_value = platform.value
+    logger.info(f"Force stop requested for {platform_value}/{native_meeting_id} by user {current_user.id}")
+
+    # Find the latest non-terminal meeting
+    stmt = select(Meeting).where(
+        Meeting.user_id == current_user.id,
+        Meeting.platform == platform_value,
+        Meeting.platform_specific_id == native_meeting_id,
+        Meeting.status.notin_([MeetingStatus.COMPLETED.value, MeetingStatus.FAILED.value])
+    ).order_by(desc(Meeting.created_at))
+
+    result = await db.execute(stmt)
+    meeting = result.scalars().first()
+
+    if not meeting:
+        logger.warning(f"Force stop: No non-terminal meeting found for {platform_value}/{native_meeting_id} (user {current_user.id}).")
+        return {"message": "No active/requested meeting found (already finalized)."}
+
+    container_id = meeting.bot_container_id
+
+    # Mark intent & metadata
+    if meeting.data is None:
+        meeting.data = {}
+    try:
+        meeting.data["force_stopped"] = True
+        meeting.data["force_stop_timestamp"] = datetime.utcnow().isoformat()
+    except Exception:
+        pass
+
+    # Attempt to stop container quickly (in background to avoid blocking if slow)
+    if container_id:
+        background_tasks.add_task(_delayed_container_stop, container_id, 0)
+        logger.info(f"Force stop: Scheduled immediate container stop for {container_id} (meeting {meeting.id})")
+
+    # Transition directly to COMPLETED (allowed by transition map)
+    try:
+        old_status = meeting.status
+        success = await update_meeting_status(
+            meeting,
+            MeetingStatus.COMPLETED,
+            db,
+            completion_reason=MeetingCompletionReason.STOPPED,
+            transition_reason="force_stop"
+        )
+        if success:
+            logger.info(f"Force stop: Meeting {meeting.id} transitioned {old_status} -> completed.")
+            await publish_meeting_status_change(meeting.id, MeetingStatus.COMPLETED.value, redis_client, platform_value, native_meeting_id, meeting.user_id)
+            # Schedule post-meeting tasks
+            background_tasks.add_task(run_all_tasks, meeting.id)
+        else:
+            logger.warning(f"Force stop: Invalid transition from {old_status} to completed for meeting {meeting.id}. Returning 409.")
+            raise HTTPException(status_code=409, detail="Invalid status transition for force stop.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Force stop: Unexpected error updating status for meeting {meeting.id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal error during force stop.")
+
+    return {"message": "Force stop accepted; meeting finalized.", "meeting_id": meeting.id}
 
 # --- --------------------------------------------------------- ---
 
