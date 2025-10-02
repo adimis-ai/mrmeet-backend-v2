@@ -7,10 +7,36 @@ install: setup-env build-bot-image build up migrate-or-init
 # Minimal CI target (added for ops automation): prepare env (cpu by default), build images.
 # Kept intentionally lightweight for droplet provisioning. Adjust if you need tests.
 ci:
-	@echo "---> Running lightweight CI target (env + build)"
+	@echo "---> Running lightweight CI target (env + build + validate-env)"
 	$(MAKE) setup-env TARGET=cpu
+	$(MAKE) validate-env
 	$(MAKE) build TARGET=cpu
 	@echo "---> CI target complete"
+
+# Validate .env file for malformed concatenated values (e.g. POSTGRES_HOST_PORT=1234API_TOKEN=...)
+validate-env:
+	@echo "---> Validating .env file integrity..."
+	@if [ ! -f .env ]; then echo "[validate-env] No .env file present (skipping)"; exit 0; fi
+	@# Detect any HOST_PORT lines that include another VAR assignment glued to them
+	@if grep -E 'HOST_PORT=[0-9]+[A-Z_]+=|POSTGRES_HOST_PORT=[0-9]+[A-Z]' .env >/dev/null; then \
+	  echo "[validate-env] ERROR: Detected concatenated variable on a HOST_PORT line:"; \
+	  grep -nE 'HOST_PORT=[0-9]+[A-Z_]+=|POSTGRES_HOST_PORT=[0-9]+[A-Z]' .env; \
+	  exit 1; \
+	fi
+	@# Ensure each required port variable is numeric only
+	@required_vars="API_GATEWAY_HOST_PORT ADMIN_API_HOST_PORT TRAEFIK_WEB_HOST_PORT TRAEFIK_DASHBOARD_HOST_PORT TRANSCRIPTION_COLLECTOR_HOST_PORT POSTGRES_HOST_PORT"; \
+	for v in $$required_vars; do \
+	  if grep -q "^$$v=" .env; then \
+	    val=$$(grep -E "^$$v=" .env | head -1 | cut -d= -f2-); \
+	    if ! echo "$$val" | grep -qE '^[0-9]+$$'; then \
+	      echo "[validate-env] ERROR: $$v must be numeric-only; found '$$val'"; \
+	      exit 1; \
+	    fi; \
+	  else \
+	    echo "[validate-env] WARNING: $$v missing"; \
+	  fi; \
+	done
+	@echo "[validate-env] .env validation passed."
 
 # Target to set up only the environment without Docker
 # Ensure .env is created based on TARGET *before* other setup steps
