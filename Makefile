@@ -1,8 +1,16 @@
-.PHONY: all setup submodules env force-env download-model build-bot-image build up down ps logs test test-api test-setup migrate makemigrations init-db stamp-db migrate-or-init
+.PHONY: all setup submodules env force-env download-model build-bot-image build up down ps logs test test-api test-setup migrate makemigrations init-db stamp-db migrate-or-init ci
 
 # Default target: Sets up everything and starts the services
 all: setup-env build-bot-image build up migrate-or-init test
 install: setup-env build-bot-image build up migrate-or-init
+
+# Minimal CI target (added for ops automation): prepare env (cpu by default), build images.
+# Kept intentionally lightweight for droplet provisioning. Adjust if you need tests.
+ci:
+	@echo "---> Running lightweight CI target (env + build)"
+	$(MAKE) setup-env TARGET=cpu
+	$(MAKE) build TARGET=cpu
+	@echo "---> CI target complete"
 
 # Target to set up only the environment without Docker
 # Ensure .env is created based on TARGET *before* other setup steps
