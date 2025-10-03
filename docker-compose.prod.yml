@@ -1,11 +1,19 @@
-name: vexa_dev
+name: mrmeet_core_prod
+# Production compose for backend services only.
+# Frontend (web) + Traefik run from ops stack (mrmeet-ops-v2/docker-compose.yaml).
+# This file now:
+#  - Removes internal Traefik / Consul (centralized in ops stack)
+#  - Mounts persistent data under ${DATA_ROOT}/redis and ${DATA_ROOT}/postgres
+#  - Attaches api-gateway & admin-api to external 'public' network for Traefik routing
+#  - Keeps an internal network (vexa_default) for service-to-service communication
+
 services:
   api-gateway:
     build:
       context: .
       dockerfile: services/api-gateway/Dockerfile
-    ports:
-      - "${API_GATEWAY_HOST_PORT:-8056}:8000"
+    expose:
+      - "8000"
     environment:
       - ADMIN_API_URL=http://admin-api:8001
       - BOT_MANAGER_URL=http://bot-manager:8080
@@ -22,14 +30,25 @@ services:
         condition: service_started
     networks:
       - vexa_default
+      - public
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.api-gateway.rule: Host(`${NEXT_APP_DOMAIN}`) && PathPrefix(`/api/gateway`)
+      traefik.http.routers.api-gateway.entrypoints: websecure
+      traefik.http.routers.api-gateway.tls: "true"
+      traefik.http.routers.api-gateway.tls.certresolver: le
+      traefik.http.routers.api-gateway.middlewares: api-gateway-strip@docker
+      traefik.http.middlewares.api-gateway-strip.stripprefix.prefixes: /api/gateway
+      traefik.http.services.api-gateway.loadbalancer.server.port: "8000"
+      traefik.docker.network: "public"
     restart: unless-stopped
 
   admin-api:
     build:
       context: .
       dockerfile: services/admin-api/Dockerfile
-    ports:
-      - "${ADMIN_API_HOST_PORT:-8057}:8001"
+    expose:
+      - "8001"
     environment:
       - DB_HOST=postgres
       - DB_PORT=5432
@@ -44,6 +63,17 @@ services:
         condition: service_healthy
     networks:
       - vexa_default
+      - public
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.admin-api.rule: Host(`${NEXT_APP_DOMAIN}`) && PathPrefix(`/api/admin`)
+      traefik.http.routers.admin-api.entrypoints: websecure
+      traefik.http.routers.admin-api.tls: "true"
+      traefik.http.routers.admin-api.tls.certresolver: le
+      traefik.http.routers.admin-api.middlewares: admin-api-strip@docker
+      traefik.http.middlewares.admin-api-strip.stripprefix.prefixes: /api/admin
+      traefik.http.services.admin-api.loadbalancer.server.port: "8001"
+      traefik.docker.network: "public"
     restart: unless-stopped
 
   bot-manager:
@@ -126,43 +156,7 @@ services:
     networks:
       - vexa_default
 
-  consul:
-    image: hashicorp/consul:1.16
-    command: agent -dev -client=0.0.0.0
-    ports:
-      - "8502:8500"
-    networks:
-      - vexa_default
-    restart: unless-stopped
-
-  traefik:
-    image: traefik:v3.1
-    command:
-      - --api.dashboard=true
-      - --api.insecure=true
-      - --entrypoints.web.address=:8081
-      - --providers.consulcatalog=true
-      - --providers.consulcatalog.endpoint.address=consul:8500
-      # Enable file provider to allow static routing configuration for websocket proxying
-      - --providers.file.directory=/etc/traefik/dynamic
-      - --providers.file.watch=true
-      - --providers.consulcatalog.exposedbydefault=false
-      - --accesslog=true
-      - --accesslog.format=json
-    ports:
-      - "8082:8080"
-      - "8081:8081"
-    networks:
-      - vexa_default
-    restart: unless-stopped
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    volumes:
-      # Mount dynamic Traefik config for additional routes (e.g. websocket proxy to whisperlive)
-      - ./traefik/dynamic:/etc/traefik/dynamic:ro
+  # Removed local consul & traefik; external Traefik (from ops stack) will route to admin-api and api-gateway.
 
   whisperlive-cpu:
     profiles: ["cpu"]
@@ -259,10 +253,9 @@ services:
 
   redis:
     image: redis:7.0-alpine
-    command:
-      ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     volumes:
-      - redis-data:/data
+      - ${DATA_ROOT:-/mnt/data}/redis:/data
     networks:
       - vexa_default
     restart: unless-stopped
@@ -274,7 +267,7 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - ${DATA_ROOT:-/mnt/data}/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d vexa"]
       interval: 5s
@@ -283,13 +276,11 @@ services:
     networks:
       - vexa_default
     restart: unless-stopped
-    ports:
-      - "${POSTGRES_HOST_PORT:-5438}:5432"
-
-volumes:
-  redis-data:
-  postgres-data:
+    # No public port exposure; accessed internally and via api services
 
 networks:
   vexa_default:
     driver: bridge
+  public:
+    external: true
+    name: public
