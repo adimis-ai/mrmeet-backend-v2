@@ -231,17 +231,84 @@ async def start_bot_container(
     socket_path_encoded = socket_path_abs.replace("/", "%2F")
     socket_url_base = f'http+unix://{socket_path_encoded}'
 
-    # Docker API payload for creating a container
+    # ---- Network Resolution (dynamic to survive compose project name changes) ----
+    def _network_exists(net_name: str) -> bool:
+        if not net_name:
+            return False
+        try:
+            inspect_url = f"{socket_url_base}/networks/{net_name}"
+            r = session.get(inspect_url)
+            return r.status_code == 200
+        except Exception:
+            return False
+
+    def _resolve_network() -> str:
+        # 1. If DOCKER_NETWORK env points to an existing network, use it.
+        if DOCKER_NETWORK and _network_exists(DOCKER_NETWORK):
+            logger.debug(f"Using explicitly configured docker network '{DOCKER_NETWORK}'")
+            return DOCKER_NETWORK
+
+        # 2. Attempt to find an *internal* compose network by labels
+        try:
+            networks_resp = session.get(f"{socket_url_base}/networks")
+            networks_resp.raise_for_status()
+            networks = networks_resp.json()
+        except Exception as e:
+            logger.warning(f"Failed listing networks via socket API: {e}. Falling back to 'bridge'.")
+            return "bridge"
+
+        # Prefer networks with compose label 'com.docker.compose.network=internal'
+        internal_candidates = []
+        for n in networks:
+            labels = n.get('Labels') or {}
+            if labels.get('com.docker.compose.network') == 'internal':
+                internal_candidates.append(n)
+
+        if internal_candidates:
+            # If multiple, try match project label with PROJECT_NAME / COMPOSE_PROJECT_NAME envs
+            proj_env = os.getenv('PROJECT_NAME') or os.getenv('COMPOSE_PROJECT_NAME')
+            if proj_env:
+                for n in internal_candidates:
+                    labels = n.get('Labels') or {}
+                    if labels.get('com.docker.compose.project') == proj_env:
+                        chosen = n.get('Name')
+                        logger.debug(f"Resolved docker network '{chosen}' for project '{proj_env}'")
+                        return chosen
+            # else just pick the first
+            chosen = internal_candidates[0].get('Name')
+            logger.debug(f"Resolved docker network '{chosen}' (first internal candidate)")
+            return chosen
+
+        # 3. Fallback: any network name ending with '_internal'
+        for n in networks:
+            name = n.get('Name') or ''
+            if name.endswith('_internal'):
+                logger.debug(f"Resolved docker network '{name}' by suffix match '_internal'")
+                return name
+
+        # 4. Final fallback
+        logger.warning("Could not resolve an internal compose network. Falling back to 'bridge'. Bot containers may not reach other services.")
+        return 'bridge'
+
+    resolved_network = _resolve_network()
+    if DOCKER_NETWORK and DOCKER_NETWORK != resolved_network:
+        logger.warning(f"Configured DOCKER_NETWORK '{DOCKER_NETWORK}' not found. Using resolved network '{resolved_network}' instead.")
+    else:
+        logger.info(f"Using docker network '{resolved_network}' for bot container.")
+
+    # Docker API payload for creating a container (with resolved network)
     create_payload = {
         "Image": BOT_IMAGE_NAME,
         "Env": environment,
-        "Labels": {"vexa.user_id": str(user_id)}, # *** ADDED Label ***
+        "Labels": {"vexa.user_id": str(user_id)},  # *** ADDED Label ***
         "HostConfig": {
-            "NetworkMode": DOCKER_NETWORK,
+            "NetworkMode": resolved_network,
             "AutoRemove": True,
             "Mounts": []
         },
     }
+
+    logger.debug(f"Container create payload (sanitized): image={BOT_IMAGE_NAME} network={create_payload['HostConfig']['NetworkMode']} labels={create_payload['Labels']}")
 
     create_url = f'{socket_url_base}/containers/create?name={container_name}'
     start_url_template = f'{socket_url_base}/containers/{{}}/start'
@@ -250,7 +317,13 @@ async def start_bot_container(
     try:
         logger.info(f"Attempting to create bot container '{container_name}' ({BOT_IMAGE_NAME}) via socket ({socket_url_base})...")
         response = session.post(create_url, json=create_payload)
-        response.raise_for_status()
+        if response.status_code != 201:
+            # Log full body for diagnostics BEFORE raising
+            try:
+                logger.error(f"Container create failed: status={response.status_code} body={response.text}")
+            except Exception:
+                pass
+            response.raise_for_status()
         container_info = response.json()
         container_id = container_info.get('Id')
 
