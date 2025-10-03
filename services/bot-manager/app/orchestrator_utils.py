@@ -248,7 +248,14 @@ async def start_bot_container(
 
     container_id = None # Initialize container_id
     try:
-        logger.info(f"Attempting to create bot container '{container_name}' ({BOT_IMAGE_NAME}) via socket ({socket_url_base})...")
+        logger.info(
+            "Attempting to create bot container '%s' (image=%s) via socket (%s) networkMode=%s",
+            container_name,
+            BOT_IMAGE_NAME,
+            socket_url_base,
+            DOCKER_NETWORK,
+        )
+        logger.debug("Create payload: %s", json.dumps(create_payload, indent=2))
         response = session.post(create_url, json=create_payload)
         response.raise_for_status()
         container_info = response.json()
@@ -258,14 +265,58 @@ async def start_bot_container(
             logger.error(f"Failed to create container: No ID in response: {container_info}")
             return None, None
 
-        logger.info(f"Container {container_id} created. Starting...")
+        logger.info(f"Container {container_id} created. Attempting start...")
 
         start_url = start_url_template.format(container_id)
         response = session.post(start_url)
 
         if response.status_code != 204:
-            logger.error(f"Failed to start container {container_id}. Status: {response.status_code}, Response: {response.text}")
-            # Consider removing the created container if start fails?
+            err_text = response.text
+            logger.error(
+                "Failed to start container %s. HTTP %s. Response body: %s",
+                container_id,
+                response.status_code,
+                err_text[:4000],  # cap to avoid log bloat
+            )
+            # Extra diagnostics: list available networks & confirm target exists
+            try:
+                nets_resp = session.get(f'{socket_url_base}/networks')
+                if nets_resp.ok:
+                    networks = [n.get('Name') for n in nets_resp.json() if isinstance(n, dict)]
+                    logger.error(
+                        "Available docker networks (for debugging): %s | expected NetworkMode=%s",
+                        networks,
+                        DOCKER_NETWORK,
+                    )
+                    if DOCKER_NETWORK not in networks:
+                        logger.error(
+                            "Configured DOCKER_NETWORK '%s' not found. This will cause start failure. Adjust env or compose naming.",
+                            DOCKER_NETWORK,
+                        )
+                else:
+                    logger.warning("Could not enumerate networks (status %s)", nets_resp.status_code)
+            except Exception as net_err:
+                logger.warning("Exception while enumerating networks for diagnostics: %s", net_err)
+
+            # Extra diagnostics: verify image presence via /images/<name>/json
+            try:
+                # The image name may include a tag. If no tag, docker assumes :latest.
+                image_ref = BOT_IMAGE_NAME if ':' in BOT_IMAGE_NAME else f"{BOT_IMAGE_NAME}:latest"
+                # Encode slashes for http+unix path component (safe: replace '/' with '%2F')
+                inspect_image_url = f"{socket_url_base}/images/{image_ref}/json"
+                img_resp = session.get(inspect_image_url)
+                if not img_resp.ok:
+                    logger.error(
+                        "Image inspect failed for %s (HTTP %s). The image may be missing locally. Consider building or pulling it.",
+                        image_ref,
+                        img_resp.status_code,
+                    )
+                else:
+                    logger.debug("Image %s is present locally (inspect ok).", image_ref)
+            except Exception as img_err:
+                logger.warning("Exception during image presence diagnostics: %s", img_err)
+
+            # Consider removing the created container if start fails (AutoRemove true will clean after exit anyway)
             return None, None
 
         logger.info(f"Successfully started container {container_id} for meeting: {meeting_id}")

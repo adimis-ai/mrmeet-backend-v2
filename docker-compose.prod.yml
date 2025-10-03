@@ -1,4 +1,7 @@
-name: mrmeet_core_prod
+# NOTE: Removed fixed 'name:' declaration so that setting COMPOSE_PROJECT_NAME=mrmeet
+# yields the default network 'mrmeet_mrmeet_default' (matching DOCKER_NETWORK env
+# expected by bot-manager for launching bot containers). If you need a custom
+# project name, update DOCKER_NETWORK accordingly instead of hard-coding 'name:'.
 
 services:
   api-gateway:
@@ -82,7 +85,7 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - BOT_IMAGE_NAME=${BOT_IMAGE_NAME:-mrmeet-bot:dev}
-      - DOCKER_NETWORK=mrmeet_default
+      - DOCKER_NETWORK=${COMPOSE_PROJECT_NAME:-mrmeet}_mrmeet_default
       - LOG_LEVEL=DEBUG
       - DB_HOST=postgres
       - DB_PORT=5432
