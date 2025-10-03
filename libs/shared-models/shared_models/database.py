@@ -36,13 +36,39 @@ if not all([DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD]):
 DATABASE_URL = f"postgresql+asyncpg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 DATABASE_URL_SYNC = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-# --- SQLAlchemy Async Engine & Session --- 
-# Use pool settings appropriate for async connections
+def _ensure_database_exists():
+    """Best‑effort create the target database if it does not exist.
+
+    This is safe to run concurrently across multiple containers; a race
+    resulting in 'already exists' is ignored. Controlled by DB_AUTO_CREATE=1
+    (defaults to enabled). If disabled we simply assume the database is there.
+    """
+    if os.environ.get("DB_AUTO_CREATE", "1") != "1":
+        logger.info("DB_AUTO_CREATE disabled; skipping database existence check.")
+        return
+    admin_url = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/postgres"
+    try:
+        admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+        with admin_engine.connect() as conn:
+            exists = conn.execute(text("SELECT 1 FROM pg_database WHERE datname=:name"), {"name": DB_NAME}).scalar()
+            if not exists:
+                logger.warning(f"Database '{DB_NAME}' not found. Creating it now...")
+                conn.execute(text(f"CREATE DATABASE {DB_NAME}"))
+                logger.info(f"Database '{DB_NAME}' created.")
+            else:
+                logger.debug(f"Database '{DB_NAME}' already exists.")
+    except Exception as e:
+        logger.error(f"Database auto-create check failed (continuing anyway): {e}", exc_info=True)
+
+# Perform existence check before creating async engine
+_ensure_database_exists()
+
+# --- SQLAlchemy Async Engine & Session ---
 engine = create_async_engine(
-    DATABASE_URL, 
+    DATABASE_URL,
     echo=os.environ.get("LOG_LEVEL", "INFO").upper() == "DEBUG",
-    pool_size=10, # Example pool size
-    max_overflow=20 # Example overflow
+    pool_size=10,
+    max_overflow=20
 )
 async_session_local = sessionmaker(
     bind=engine,

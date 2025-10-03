@@ -32,6 +32,18 @@ logger = logging.getLogger("admin_api")
 # App initialization
 app = FastAPI(title="Vexa Admin API")
 
+# --- Startup hook for automatic DB initialization ---
+@app.on_event("startup")
+async def startup_init_db():
+    if os.getenv("ADMIN_API_AUTO_INIT", "0") == "1":
+        try:
+            logger.info("ADMIN_API_AUTO_INIT=1 -> ensuring database and tables exist")
+            await init_db()
+        except Exception as e:
+            logger.error(f"Startup DB init failed: {e}", exc_info=True)
+    else:
+        logger.info("ADMIN_API_AUTO_INIT disabled; skipping table creation check")
+
 # --- Pydantic Schemas for new endpoint ---
 class WebhookUpdate(BaseModel):
     webhook_url: HttpUrl
