@@ -1,11 +1,4 @@
 name: mrmeet_core_prod
-# Production compose for backend services only.
-# Frontend (web) + Traefik run from ops stack (mrmeet-ops-v2/docker-compose.yaml).
-# This file now:
-#  - Removes internal Traefik / Consul (centralized in ops stack)
-#  - Mounts persistent data under ${DATA_ROOT}/redis and ${DATA_ROOT}/postgres
-#  - Attaches api-gateway & admin-api to external 'public' network for Traefik routing
-#  - Keeps an internal network (vexa_default) for service-to-service communication
 
 services:
   api-gateway:
@@ -29,7 +22,7 @@ services:
       transcription-collector:
         condition: service_started
     networks:
-      - vexa_default
+      - mrmeet_default
       - public
     labels:
       traefik.enable: "true"
@@ -52,7 +45,7 @@ services:
     environment:
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_NAME=vexa
+      - DB_NAME=mrmeet
       - DB_USER=postgres
       - DB_PASSWORD=postgres
       - ADMIN_API_TOKEN=${ADMIN_API_TOKEN}
@@ -62,7 +55,7 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - vexa_default
+      - mrmeet_default
       - public
     labels:
       traefik.enable: "true"
@@ -82,17 +75,16 @@ services:
       dockerfile: services/bot-manager/Dockerfile
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - BOT_IMAGE_NAME=${BOT_IMAGE_NAME:-vexa-bot:dev}
-      - DOCKER_NETWORK=${COMPOSE_PROJECT_NAME:-vexa}_vexa_default
+      - BOT_IMAGE_NAME=${BOT_IMAGE_NAME:-mrmeet-bot:dev}
+      - DOCKER_NETWORK=${COMPOSE_PROJECT_NAME:-mrmeet}_mrmeet_default
       - LOG_LEVEL=DEBUG
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_NAME=vexa
+      - DB_NAME=mrmeet
       - DB_USER=postgres
       - DB_PASSWORD=postgres
       - DOCKER_HOST=unix://var/run/docker.sock
       - DEVICE_TYPE=${DEVICE_TYPE}
-      # Connect directly to the whisperlive service on the internal network
       - WHISPER_LIVE_URL=${WHISPER_LIVE_URL:-http://whisperlive:9090}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -103,7 +95,7 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - vexa_default
+      - mrmeet_default
     restart: unless-stopped
 
   whisperlive:
@@ -115,9 +107,7 @@ services:
       - ./hub:/root/.cache/huggingface/hub
       - ./services/WhisperLive/models:/app/models
     environment:
-      # Use Redis Stream URL instead of WebSocket URL
       - REDIS_STREAM_URL=redis://redis:6379/0/transcription_segments
-      # Keep the old URL for backward compatibility
       - TRANSCRIPTION_COLLECTOR_URL=redis://redis:6379/0/transcription_segments
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -127,36 +117,32 @@ services:
       - DEVICE_TYPE=${DEVICE_TYPE}
       - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE}
       - WL_MAX_CLIENTS=${WL_MAX_CLIENTS}
-      # Server-level speaker-based circuit breaker
       - WL_USE_SPEAKER_GROUND_TRUTH=${WL_USE_SPEAKER_GROUND_TRUTH:-true}
       - WL_SERVER_SPEAKER_NO_TX_STALL_S=${WL_SERVER_SPEAKER_NO_TX_STALL_S:-30}
       - WL_SPEAKER_ACTIVE_WINDOW_S=${WL_SPEAKER_ACTIVE_WINDOW_S:-8}
       - WL_SERVER_WARMUP_S=${WL_SERVER_WARMUP_S:-60}
-      # VAD filter - most permissive to catch hallucinations during silence
       - VAD_FILTER_THRESHOLD=${VAD_FILTER_THRESHOLD:-0}
       - CONSUL_ENABLE=${CONSUL_ENABLE:-true}
       - CONSUL_HTTP_ADDR=${CONSUL_HTTP_ADDR:-http://consul:8500}
       - WL_REDIS_DISCOVERY_ENABLED=${WL_REDIS_DISCOVERY_ENABLED:-false}
     command: --port 9090 --backend faster_whisper --faster_whisper_custom_model_path ${WHISPER_MODEL_SIZE}
     expose:
-      - "9090" #use for transcription web socket
-      - "9091" #use for health check
+      - "9090"
+      - "9091"
     deploy:
       replicas: 1
       resources:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ["0"] # Ensure this is configurable or correct for your setup
+              device_ids: ["0"]
               capabilities: [gpu]
     init: true
     depends_on:
       transcription-collector:
         condition: service_started
     networks:
-      - vexa_default
-
-  # Removed local consul & traefik; external Traefik (from ops stack) will route to admin-api and api-gateway.
+      - mrmeet_default
 
   whisperlive-cpu:
     profiles: ["cpu"]
@@ -182,15 +168,14 @@ services:
       replicas: 2
     command: --port 9090 --backend faster_whisper --faster_whisper_custom_model_path ${WHISPER_MODEL_SIZE}
     expose:
-      - "9090" #use for transcription web socket
-      - "9091" #use for health check
+      - "9090"
+      - "9091"
     init: true
     depends_on:
       transcription-collector:
         condition: service_started
     networks:
-      - vexa_default
-    # Don't auto-start CPU version, users can manually start it
+      - mrmeet_default
     restart: unless-stopped
     logging:
       driver: "json-file"
@@ -210,7 +195,7 @@ services:
     environment:
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_NAME=vexa
+      - DB_NAME=mrmeet
       - DB_USER=postgres
       - DB_PASSWORD=postgres
       - REDIS_HOST=redis
@@ -231,7 +216,7 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - vexa_default
+      - mrmeet_default
     restart: unless-stopped
 
   mcp:
@@ -248,38 +233,38 @@ services:
       api-gateway:
         condition: service_started
     networks:
-      - vexa_default
+      - mrmeet_default
     restart: unless-stopped
 
   redis:
     image: redis:7.0-alpine
-    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    command:
+      ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     volumes:
       - ${DATA_ROOT:-/mnt/data}/redis:/data
     networks:
-      - vexa_default
+      - mrmeet_default
     restart: unless-stopped
 
   postgres:
     image: postgres:15-alpine
     environment:
-      - POSTGRES_DB=vexa
+      - POSTGRES_DB=mrmeet
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
     volumes:
       - ${DATA_ROOT:-/mnt/data}/postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d vexa"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mrmeet"]
       interval: 5s
       timeout: 5s
       retries: 5
     networks:
-      - vexa_default
+      - mrmeet_default
     restart: unless-stopped
-    # No public port exposure; accessed internally and via api services
 
 networks:
-  vexa_default:
+  mrmeet_default:
     driver: bridge
   public:
     external: true
