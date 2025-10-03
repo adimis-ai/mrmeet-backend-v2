@@ -49,6 +49,12 @@ services:
       - DB_USER=postgres
       - DB_PASSWORD=postgres
       - ADMIN_API_TOKEN=${ADMIN_API_TOKEN}
+      # Enable automatic DB initialization / migrations inside the container
+      - ADMIN_API_AUTO_INIT=1
+      # Unified SQLAlchemy/asyncpg style URL (safe defaults if any variable missing)
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@${DB_HOST:-postgres}:${DB_PORT:-5432}/${DB_NAME:-mrmeet}
+      # (Optional) Redis URL if admin service needs caching/session (harmless if unused)
+      - REDIS_URL=redis://redis:6379/0
       - LOG_LEVEL=DEBUG
     init: true
     depends_on:
@@ -83,6 +89,7 @@ services:
       - DB_NAME=mrmeet
       - DB_USER=postgres
       - DB_PASSWORD=postgres
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@${DB_HOST:-postgres}:${DB_PORT:-5432}/${DB_NAME:-mrmeet}
       - DOCKER_HOST=unix://var/run/docker.sock
       - DEVICE_TYPE=${DEVICE_TYPE}
       - WHISPER_LIVE_URL=${WHISPER_LIVE_URL:-http://whisperlive:9090}
@@ -198,6 +205,7 @@ services:
       - DB_NAME=mrmeet
       - DB_USER=postgres
       - DB_PASSWORD=postgres
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@${DB_HOST:-postgres}:${DB_PORT:-5432}/${DB_NAME:-mrmeet}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_STREAM_NAME=transcription_segments
