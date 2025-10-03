@@ -563,10 +563,22 @@ async def get_user_details(
 # App events
 @app.on_event("startup")
 async def startup_event():
-    logger.info("Admin API starting up. Skipping automatic DB initialization.")
-    # The 'migrate-or-init' Makefile target is now responsible for all DB setup.
-    # await init_db()
-    pass
+    """Optionally initialize database tables if ADMIN_API_AUTO_INIT=1.
+
+    This is a safety / convenience feature for ephemeral or first-time
+    deployments. In stable production environments you should rely on an
+    explicit migration step instead of auto-creation.
+    """
+    auto_init = os.getenv("ADMIN_API_AUTO_INIT", "0") == "1"
+    if auto_init:
+        logger.info("Admin API starting up with AUTO_INIT enabled. Ensuring tables exist (checkfirst).")
+        try:
+            await init_db()
+            logger.info("AUTO_INIT database table check/creation completed successfully.")
+        except Exception as e:
+            logger.error(f"AUTO_INIT failed to initialize database: {e}", exc_info=True)
+    else:
+        logger.info("Admin API starting up. Skipping automatic DB initialization (ADMIN_API_AUTO_INIT!=1).")
 
 # Include the admin router
 app.include_router(admin_router)
