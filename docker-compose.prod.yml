@@ -82,7 +82,7 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - BOT_IMAGE_NAME=${BOT_IMAGE_NAME:-mrmeet-bot:dev}
-      - DOCKER_NETWORK=${COMPOSE_PROJECT_NAME:-mrmeet}_mrmeet_default
+      - DOCKER_NETWORK=mrmeet_default
       - LOG_LEVEL=DEBUG
       - DB_HOST=postgres
       - DB_PORT=5432
