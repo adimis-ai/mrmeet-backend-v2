@@ -1,8 +1,3 @@
-# NOTE: Removed fixed 'name:' declaration so that setting COMPOSE_PROJECT_NAME=mrmeet
-# yields the default network 'mrmeet_mrmeet_default' (matching DOCKER_NETWORK env
-# expected by bot-manager for launching bot containers). If you need a custom
-# project name, update DOCKER_NETWORK accordingly instead of hard-coding 'name:'.
-
 services:
   api-gateway:
     build:
